@@ -1,0 +1,19 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.log
+.vs/
+
+## IDE
+.idea/
+*.swp
+
+## Environment
+.env
+appsettings.*.local.json
+
+## Docker
+pgdata/

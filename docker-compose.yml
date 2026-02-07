@@ -1,0 +1,57 @@
+services:
+  polymarket-collector:
+    build: ./src/PolyMarket.Collector
+    depends_on: [rabbitmq, redis]
+    environment:
+      - RabbitMQ__Host=rabbitmq
+      - Redis__Connection=redis:6379
+
+  analytics:
+    build: ./src/PolyMarket.Analytics
+    depends_on: [rabbitmq, redis]
+    environment:
+      - RabbitMQ__Host=rabbitmq
+      - Redis__Connection=redis:6379
+
+  alerting:
+    build: ./src/PolyMarket.Alerting
+    depends_on: [rabbitmq, postgres]
+    environment:
+      - RabbitMQ__Host=rabbitmq
+      - ConnectionStrings__DefaultConnection=Host=postgres;Database=polymarket;Username=app;Password=${DB_PASSWORD}
+      - Telegram__BotToken=${TELEGRAM_BOT_TOKEN}
+
+  storage:
+    build: ./src/PolyMarket.Storage
+    depends_on: [rabbitmq, postgres]
+    environment:
+      - RabbitMQ__Host=rabbitmq
+      - ConnectionStrings__DefaultConnection=Host=postgres;Database=polymarket;Username=app;Password=${DB_PASSWORD}
+
+  webapi:
+    build: ./src/PolyMarket.WebApi
+    ports: ["5000:8080"]
+    depends_on: [postgres, redis]
+    environment:
+      - ConnectionStrings__DefaultConnection=Host=postgres;Database=polymarket;Username=app;Password=${DB_PASSWORD}
+      - Redis__Connection=redis:6379
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports: ["5672:5672", "15672:15672"]
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: polymarket
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    ports: ["5432:5432"]
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+volumes:
+  pgdata:
