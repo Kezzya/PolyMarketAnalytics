@@ -5,7 +5,16 @@
       "Bash(dir:*)",
       "Bash(dotnet new:*)",
       "Bash(dotnet sln:*)",
-      "Bash(dotnet build:*)"
+      "Bash(dotnet build:*)",
+      "Bash(docker info:*)",
+      "Bash(curl:*)",
+      "Bash(docker ps:*)",
+      "Bash(docker compose up:*)",
+      "Bash(docker exec:*)",
+      "Bash(dotnet ef migrations add:*)",
+      "Bash(dotnet ef database update:*)",
+      "Bash(docker compose:*)",
+      "Bash(findstr:*)"
     ]
   }
 }
