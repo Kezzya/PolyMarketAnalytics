@@ -20,8 +20,13 @@ public class AnomalyAlertConsumer : IConsumer<AnomalyDetected>
         _minSeverity = decimal.Parse(config["Alerting:MinSeverity"] ?? "0.3");
     }
 
-    // NearResolution is noisy (hundreds of markets near expiry) — skip from Telegram
-    private static readonly HashSet<AnomalyType> _mutedTypes = [AnomalyType.NearResolution];
+    // Only send actionable trading signals — mute noise
+    private static readonly HashSet<AnomalyType> _mutedTypes =
+    [
+        AnomalyType.NearResolution,    // hundreds of markets near expiry, not a signal
+        AnomalyType.SpreadAnomaly,     // wide spreads = dead/illiquid markets, not tradeable
+        AnomalyType.MarketDivergence,  // informational only, no clear buy/sell signal
+    ];
 
     public async Task Consume(ConsumeContext<AnomalyDetected> context)
     {

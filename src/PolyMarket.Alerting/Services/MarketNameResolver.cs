@@ -5,16 +5,15 @@ using System.Text.Json.Serialization;
 namespace PolyMarket.Alerting.Services;
 
 /// <summary>
-/// Resolves conditionId (0x...) → human-readable market question via Gamma API.
-/// Caches results in-memory so we don't spam the API.
-/// Registered as Singleton, uses IHttpClientFactory for proper HttpClient lifecycle.
+/// Resolves conditionId (0x...) → human-readable market question + event slug via Gamma API.
+/// Polymarket URL = https://polymarket.com/event/{EVENT_SLUG} (NOT market slug!)
 /// </summary>
 public class MarketNameResolver
 {
     private readonly IHttpClientFactory _httpFactory;
     private readonly ILogger<MarketNameResolver> _logger;
     private readonly string _baseUrl;
-    private readonly ConcurrentDictionary<string, string> _cache = new();
+    private readonly ConcurrentDictionary<string, MarketInfo> _cache = new();
     private DateTime _lastBulkLoad = DateTime.MinValue;
 
     public MarketNameResolver(
@@ -27,9 +26,8 @@ public class MarketNameResolver
         _baseUrl = config["Polymarket:GammaApiUrl"] ?? "https://gamma-api.polymarket.com/";
     }
 
-    public async Task<string> ResolveAsync(string marketId, CancellationToken ct = default)
+    public async Task<MarketInfo> ResolveAsync(string marketId, CancellationToken ct = default)
     {
-        // Check cache first
         if (_cache.TryGetValue(marketId, out var cached))
             return cached;
 
@@ -41,7 +39,7 @@ public class MarketNameResolver
                 return cached;
         }
 
-        // Single lookup as fallback
+        // Single lookup fallback — markets endpoint includes events[]
         try
         {
             using var http = CreateClient();
@@ -49,31 +47,34 @@ public class MarketNameResolver
             if (response.IsSuccessStatusCode)
             {
                 var json = await response.Content.ReadAsStringAsync(ct);
-                var markets = JsonSerializer.Deserialize<List<GammaMarketSlim>>(json);
+                var markets = JsonSerializer.Deserialize<List<GammaMarketFull>>(json);
                 if (markets is { Count: > 0 })
                 {
-                    var question = markets[0].Question ?? marketId;
-                    _cache[marketId] = question;
-                    return question;
+                    var m = markets[0];
+                    var eventSlug = m.Events?.FirstOrDefault()?.Slug ?? "";
+                    var info = new MarketInfo(m.Question ?? marketId, eventSlug);
+                    _cache[marketId] = info;
+                    return info;
                 }
             }
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Failed to resolve market name for {MarketId}", marketId);
+            _logger.LogDebug(ex, "Failed to resolve market {MarketId}", marketId);
         }
 
-        // Fallback: shortened hash
         var shortId = marketId.Length > 10 ? $"{marketId[..6]}...{marketId[^4..]}" : marketId;
-        _cache[marketId] = shortId;
-        return shortId;
+        var fallback = new MarketInfo(shortId, "");
+        _cache[marketId] = fallback;
+        return fallback;
     }
 
     private async Task BulkLoadAsync(CancellationToken ct)
     {
         try
         {
-            _logger.LogInformation("Bulk loading market names from Gamma API...");
+            // Load from /events endpoint — gives us event slug directly
+            _logger.LogInformation("Bulk loading events from Gamma API...");
             using var http = CreateClient();
             var offset = 0;
             var loaded = 0;
@@ -81,36 +82,43 @@ public class MarketNameResolver
             while (offset < 5000)
             {
                 var response = await http.GetAsync(
-                    $"markets?limit=100&offset={offset}&active=true&closed=false", ct);
+                    $"events?limit=50&offset={offset}&active=true&closed=false", ct);
 
-                if (!response.IsSuccessStatusCode)
-                    break;
+                if (!response.IsSuccessStatusCode) break;
 
                 var json = await response.Content.ReadAsStringAsync(ct);
-                var markets = JsonSerializer.Deserialize<List<GammaMarketSlim>>(json);
+                var events = JsonSerializer.Deserialize<List<GammaEvent>>(json);
 
-                if (markets is null || markets.Count == 0)
-                    break;
+                if (events is null || events.Count == 0) break;
 
-                foreach (var m in markets)
+                foreach (var ev in events)
                 {
-                    if (!string.IsNullOrEmpty(m.ConditionId) && !string.IsNullOrEmpty(m.Question))
-                        _cache[m.ConditionId] = m.Question;
+                    if (ev.Markets is null) continue;
+
+                    foreach (var m in ev.Markets)
+                    {
+                        if (!string.IsNullOrEmpty(m.ConditionId))
+                        {
+                            _cache[m.ConditionId] = new MarketInfo(
+                                m.Question ?? ev.Title ?? "",
+                                ev.Slug ?? "");
+                        }
+                    }
                 }
 
-                loaded += markets.Count;
-                offset += 100;
+                loaded += events.Count;
+                offset += 50;
 
-                if (markets.Count < 100)
-                    break;
+                if (events.Count < 50) break;
             }
 
             _lastBulkLoad = DateTime.UtcNow;
-            _logger.LogInformation("Loaded {Count} market names into cache", loaded);
+            _logger.LogInformation("Loaded {Count} events ({Markets} markets) into cache",
+                loaded, _cache.Count);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to bulk load market names");
+            _logger.LogWarning(ex, "Failed to bulk load events");
         }
     }
 
@@ -122,12 +130,54 @@ public class MarketNameResolver
         return client;
     }
 
+    // Models for /events endpoint
+    private class GammaEvent
+    {
+        [JsonPropertyName("slug")]
+        public string? Slug { get; set; }
+
+        [JsonPropertyName("title")]
+        public string? Title { get; set; }
+
+        [JsonPropertyName("markets")]
+        public List<GammaMarketSlim>? Markets { get; set; }
+    }
+
     private class GammaMarketSlim
     {
         [JsonPropertyName("conditionId")]
         public string ConditionId { get; set; } = "";
 
         [JsonPropertyName("question")]
-        public string Question { get; set; } = "";
+        public string? Question { get; set; }
+    }
+
+    // Model for /markets endpoint (single lookup, includes events[])
+    private class GammaMarketFull
+    {
+        [JsonPropertyName("conditionId")]
+        public string ConditionId { get; set; } = "";
+
+        [JsonPropertyName("question")]
+        public string? Question { get; set; }
+
+        [JsonPropertyName("events")]
+        public List<GammaEventSlim>? Events { get; set; }
+    }
+
+    private class GammaEventSlim
+    {
+        [JsonPropertyName("slug")]
+        public string? Slug { get; set; }
+    }
+
+    public record MarketInfo(string Question, string EventSlug)
+    {
+        public string GetPolymarketUrl()
+        {
+            if (!string.IsNullOrEmpty(EventSlug))
+                return $"https://polymarket.com/event/{EventSlug}";
+            return "";
+        }
     }
 }

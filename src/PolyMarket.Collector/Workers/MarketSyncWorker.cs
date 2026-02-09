@@ -11,6 +11,8 @@ public class MarketSyncWorker : BackgroundService
     private readonly IBus _bus;
     private readonly ILogger<MarketSyncWorker> _logger;
     private readonly TimeSpan _interval;
+    private readonly decimal _minVolume;
+    private readonly decimal _minLiquidity;
 
     private readonly Dictionary<string, decimal> _lastPrices = new();
 
@@ -25,11 +27,15 @@ public class MarketSyncWorker : BackgroundService
         _logger = logger;
         _interval = TimeSpan.FromSeconds(
             int.Parse(config["Polymarket:SyncIntervalSeconds"] ?? "60"));
+        _minVolume = decimal.Parse(config["Polymarket:MinVolume"] ?? "10000");
+        _minLiquidity = decimal.Parse(config["Polymarket:MinLiquidity"] ?? "500");
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("MarketSyncWorker started, interval={Interval}s", _interval.TotalSeconds);
+        _logger.LogInformation(
+            "MarketSyncWorker started, interval={Interval}s, minVolume=${MinVol}, minLiquidity=${MinLiq}",
+            _interval.TotalSeconds, _minVolume, _minLiquidity);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -49,9 +55,16 @@ public class MarketSyncWorker : BackgroundService
     private async Task SyncMarketsAsync(CancellationToken ct)
     {
         var markets = await _gammaApi.GetAllActiveMarketsAsync(ct);
-        _logger.LogInformation("Syncing {Count} markets", markets.Count);
 
-        foreach (var market in markets)
+        // Filter out dead markets — no point tracking $0 volume markets
+        var alive = markets
+            .Where(m => m.Volume >= _minVolume && m.Liquidity >= _minLiquidity)
+            .ToList();
+
+        _logger.LogInformation("Syncing {Alive}/{Total} markets (filtered by vol>=${MinVol}, liq>=${MinLiq})",
+            alive.Count, markets.Count, _minVolume, _minLiquidity);
+
+        foreach (var market in alive)
         {
             var (yesPrice, noPrice) = ParsePrices(market.OutcomePrices);
             if (yesPrice <= 0) continue;
@@ -67,10 +80,11 @@ public class MarketSyncWorker : BackgroundService
 
             await _bus.Publish(snapshot, ct);
 
+            // Only publish price changes for meaningful moves (5%+)
             if (_lastPrices.TryGetValue(market.ConditionId, out var oldPrice) && oldPrice > 0)
             {
                 var changePercent = Math.Abs((yesPrice - oldPrice) / oldPrice * 100);
-                if (changePercent >= 1m)
+                if (changePercent >= 5m)
                 {
                     await _bus.Publish(new MarketPriceChanged(
                         MarketId: market.ConditionId,

@@ -21,7 +21,9 @@
       "Bash(dotnet tool list:*)",
       "Bash(powershell -Command \"& { [System.Reflection.Assembly]::LoadFrom\\(''C:\\\\Users\\\\user\\\\.nuget\\\\packages\\\\nethereum.signer.eip712\\\\4.21.4\\\\lib\\\\net8.0\\\\Nethereum.Signer.EIP712.dll''\\) | ForEach-Object { $_.GetTypes\\(\\) } | ForEach-Object { $_.FullName } }\")",
       "Bash(docker --version:*)",
-      "Bash(powershell:*)"
+      "Bash(powershell:*)",
+      "WebFetch(domain:gamma-api.polymarket.com)",
+      "WebFetch(domain:polymarket.com)"
     ]
   }
 }

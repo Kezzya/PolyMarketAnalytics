@@ -137,7 +137,7 @@ public class PriceStreamWorker : BackgroundService
         {
             var changePercent = Math.Abs((newPrice - oldPrice) / oldPrice * 100);
 
-            if (changePercent >= 1m)
+            if (changePercent >= 5m) // only publish significant moves
             {
                 var priceChanged = new MarketPriceChanged(
                     MarketId: marketId,

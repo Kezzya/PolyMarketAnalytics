@@ -4,10 +4,12 @@ namespace PolyMarket.Analytics.Detectors;
 
 public class SpreadDetector
 {
-    private const decimal WideSpreadThreshold = 0.10m; // 10%+ spread is truly anomalous on Polymarket
+    private const decimal WideSpreadThreshold = 0.10m; // 10%+ spread is truly anomalous
     private const decimal SpreadSpikeMultiplier = 3m;
+    private const int MinObservations = 3;             // warmup: need baseline before alerting
 
     private readonly Dictionary<string, decimal> _avgSpreads = new();
+    private readonly Dictionary<string, int> _observationCount = new();
 
     public void UpdateAverage(string marketId, decimal spread)
     {
@@ -15,6 +17,8 @@ public class SpreadDetector
             _avgSpreads[marketId] = current * 0.9m + spread * 0.1m;
         else
             _avgSpreads[marketId] = spread;
+
+        _observationCount[marketId] = _observationCount.GetValueOrDefault(marketId, 0) + 1;
     }
 
     public AnomalyDetected? Detect(OrderBookUpdated book)
@@ -22,13 +26,18 @@ public class SpreadDetector
         if (book.Spread <= 0)
             return null;
 
-        // Check 1: absolute wide spread
-        var isWide = book.Spread >= WideSpreadThreshold;
+        // Don't alert on cold start
+        if (_observationCount.GetValueOrDefault(book.MarketId, 0) < MinObservations)
+            return null;
 
-        // Check 2: spread spike relative to average
+        // Only spike detection — need average baseline
         var isSpiked = false;
-        if (_avgSpreads.TryGetValue(book.MarketId, out var avgSpread) && avgSpread > 0)
+        var avgSpread = 0m;
+        if (_avgSpreads.TryGetValue(book.MarketId, out avgSpread) && avgSpread > 0)
             isSpiked = book.Spread / avgSpread >= SpreadSpikeMultiplier;
+
+        // Also check absolute wide spread
+        var isWide = book.Spread >= WideSpreadThreshold;
 
         if (!isWide && !isSpiked)
             return null;

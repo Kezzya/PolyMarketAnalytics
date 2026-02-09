@@ -52,7 +52,7 @@ public class OrderBookWorker : BackgroundService
     {
         var markets = await _gammaApi.GetAllActiveMarketsAsync(ct);
         var topMarkets = markets
-            .Where(m => m.Volume > 5000 && m.Liquidity > 1000)
+            .Where(m => m.Volume > 50000 && m.Liquidity > 5000)
             .OrderByDescending(m => m.Volume)
             .Take(30)
             .ToList();

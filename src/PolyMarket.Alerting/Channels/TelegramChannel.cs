@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text;
 using Telegram.Bot;
 using Telegram.Bot.Types.Enums;
 using PolyMarket.Alerting.Services;
@@ -13,13 +14,11 @@ public class TelegramChannel
     private readonly ILogger<TelegramChannel> _logger;
     private readonly MarketNameResolver _resolver;
 
-    // Rate limiting: max N alerts per minute
     private readonly int _maxAlertsPerMinute;
     private readonly ConcurrentQueue<DateTime> _sentTimestamps = new();
 
-    // Deduplication: don't send same market+type within cooldown
     private readonly ConcurrentDictionary<string, DateTime> _recentAlerts = new();
-    private readonly TimeSpan _deduplicationCooldown = TimeSpan.FromMinutes(5);
+    private readonly TimeSpan _deduplicationCooldown;
 
     public TelegramChannel(IConfiguration config, ILogger<TelegramChannel> logger, MarketNameResolver resolver)
     {
@@ -27,6 +26,8 @@ public class TelegramChannel
         _resolver = resolver;
         var token = config["Telegram:BotToken"];
         _chatId = config["Telegram:ChatId"];
+        var dedupeMinutes = int.Parse(config["Alerting:DeduplicationMinutes"] ?? "15");
+        _deduplicationCooldown = TimeSpan.FromMinutes(dedupeMinutes);
         _maxAlertsPerMinute = int.Parse(config["Alerting:MaxAlertsPerMinute"] ?? "10");
 
         if (!string.IsNullOrEmpty(token))
@@ -36,70 +37,54 @@ public class TelegramChannel
         }
         else
         {
-            _logger.LogWarning("Telegram bot token not configured, alerts will be logged only");
+            _logger.LogWarning("Telegram bot token not configured");
         }
     }
 
     public async Task SendAlertAsync(AnomalyDetected anomaly, CancellationToken ct = default)
     {
-        // Deduplication: skip if same market+type was alerted recently
         var dedupeKey = $"{anomaly.MarketId}:{anomaly.Type}";
         var now = DateTime.UtcNow;
         if (_recentAlerts.TryGetValue(dedupeKey, out var lastSent) && now - lastSent < _deduplicationCooldown)
-        {
-            _logger.LogDebug("Skipping duplicate alert: {Type} {MarketId} (sent {Ago}s ago)",
-                anomaly.Type, anomaly.MarketId, (now - lastSent).TotalSeconds);
             return;
-        }
 
-        // Rate limiting: max N per minute
         CleanupOldTimestamps();
         if (_sentTimestamps.Count >= _maxAlertsPerMinute)
         {
-            _logger.LogWarning("Rate limit reached ({Max}/min), dropping alert: {Type} {MarketId}",
-                _maxAlertsPerMinute, anomaly.Type, anomaly.MarketId);
+            _logger.LogWarning("Rate limit ({Max}/min), dropping: {Type}", _maxAlertsPerMinute, anomaly.Type);
             return;
         }
 
-        // Resolve market name: 0x... hash → "Will Bitcoin hit $150k?"
-        var marketName = await _resolver.ResolveAsync(anomaly.MarketId, ct);
+        var market = await _resolver.ResolveAsync(anomaly.MarketId, ct);
+        var polymarketUrl = market.GetPolymarketUrl();
 
         var emoji = anomaly.Type switch
         {
             AnomalyType.PriceSpike => "\u26a1",
             AnomalyType.VolumeSpike => "\ud83d\udcc8",
             AnomalyType.WhaleTrade => "\ud83d\udc33",
-            AnomalyType.MarketDivergence => "\u26a0\ufe0f",
-            AnomalyType.NearResolution => "\ud83c\udfaf",
             AnomalyType.OrderBookImbalance => "\ud83d\udcca",
-            AnomalyType.SpreadAnomaly => "\ud83d\udcc9",
             AnomalyType.NewsImpact => "\ud83d\udcf0",
-            AnomalyType.ArbitrageOpportunity => "\ud83d\udcb0",
             _ => "\ud83d\udd14"
         };
 
-        var severityBar = new string('\u2588', (int)(anomaly.Severity * 10));
-        var emptyBar = new string('\u2591', 10 - (int)(anomaly.Severity * 10));
+        // Build clean message without leading whitespace
+        var sb = new StringBuilder();
+        sb.AppendLine($"{emoji} <b>{anomaly.Type}</b>");
+        sb.AppendLine();
+        sb.AppendLine($"<b>{EscapeHtml(market.Question)}</b>");
+        sb.AppendLine();
+        sb.AppendLine(anomaly.Description);
+        sb.AppendLine();
+        sb.AppendLine($"<i>{anomaly.Timestamp:HH:mm:ss} UTC</i>");
 
-        var polymarketUrl = $"https://polymarket.com/event/{anomaly.MarketId}";
+        if (!string.IsNullOrEmpty(polymarketUrl))
+            sb.AppendLine($"\n<a href=\"{polymarketUrl}\">\ud83d\udd17 Open on Polymarket</a>");
 
-        var message = $"""
-            {emoji} <b>{anomaly.Type}</b>
-
-            <b>{EscapeHtml(marketName)}</b>
-
-            {anomaly.Description}
-
-            <b>Severity:</b> [{severityBar}{emptyBar}] {anomaly.Severity:P0}
-            <b>Time:</b> {anomaly.Timestamp:yyyy-MM-dd HH:mm:ss} UTC
-            <a href="{polymarketUrl}">\ud83d\udd17 Polymarket</a>
-            """;
-
-        // Add news URL if present
         if (anomaly.Details.TryGetValue("url", out var urlObj) && urlObj is string url && !string.IsNullOrEmpty(url))
-        {
-            message += $" | <a href=\"{url}\">\ud83d\udcf0 News</a>";
-        }
+            sb.AppendLine($"<a href=\"{url}\">\ud83d\udcf0 News</a>");
+
+        var message = sb.ToString();
 
         if (_bot is not null && !string.IsNullOrEmpty(_chatId))
         {
@@ -113,27 +98,18 @@ public class TelegramChannel
 
                 _sentTimestamps.Enqueue(now);
                 _recentAlerts[dedupeKey] = now;
-
-                _logger.LogDebug("Alert sent to Telegram: {Type} {Market}", anomaly.Type, marketName);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to send Telegram alert");
             }
         }
-        else
-        {
-            _logger.LogInformation("ALERT (no Telegram): {Message}", anomaly.Description);
-        }
 
-        // Cleanup stale deduplication entries periodically
         if (_recentAlerts.Count > 500)
         {
-            var staleKeys = _recentAlerts
+            foreach (var key in _recentAlerts
                 .Where(kv => now - kv.Value > _deduplicationCooldown)
-                .Select(kv => kv.Key)
-                .ToList();
-            foreach (var key in staleKeys)
+                .Select(kv => kv.Key).ToList())
                 _recentAlerts.TryRemove(key, out _);
         }
     }

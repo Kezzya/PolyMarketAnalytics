@@ -14,6 +14,8 @@ services:
       - Polymarket__SyncIntervalSeconds=60
       - Polymarket__WhaleTrackingIntervalSeconds=120
       - Polymarket__MinWhaleTradeValue=1000
+      - Polymarket__MinVolume=50000
+      - Polymarket__MinLiquidity=5000
     restart: unless-stopped
 
   analytics:
@@ -38,8 +40,9 @@ services:
       - RabbitMQ__Host=rabbitmq
       - Telegram__BotToken=${TELEGRAM_BOT_TOKEN:-}
       - Telegram__ChatId=${TELEGRAM_CHAT_ID:-}
-      - Alerting__MinSeverity=0.7
-      - Alerting__MaxAlertsPerMinute=5
+      - Alerting__MinSeverity=0.8
+      - Alerting__MaxAlertsPerMinute=3
+      - Alerting__DeduplicationMinutes=15
     restart: unless-stopped
 
   storage:
