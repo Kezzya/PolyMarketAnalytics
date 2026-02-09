@@ -19,6 +19,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PolyMarket.WebApi", "src\Po
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PolyMarket.Analytics.Tests", "tests\PolyMarket.Analytics.Tests\PolyMarket.Analytics.Tests.csproj", "{5D766A80-F408-4E04-8B64-CADB915CACB5}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PolyMarket.AutoBet", "src\PolyMarket.AutoBet\PolyMarket.AutoBet.csproj", "{61BF6938-764D-480B-8958-2B62A7AB8661}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -113,6 +115,18 @@ Global
 		{5D766A80-F408-4E04-8B64-CADB915CACB5}.Release|x64.Build.0 = Release|Any CPU
 		{5D766A80-F408-4E04-8B64-CADB915CACB5}.Release|x86.ActiveCfg = Release|Any CPU
 		{5D766A80-F408-4E04-8B64-CADB915CACB5}.Release|x86.Build.0 = Release|Any CPU
+		{61BF6938-764D-480B-8958-2B62A7AB8661}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{61BF6938-764D-480B-8958-2B62A7AB8661}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{61BF6938-764D-480B-8958-2B62A7AB8661}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{61BF6938-764D-480B-8958-2B62A7AB8661}.Debug|x64.Build.0 = Debug|Any CPU
+		{61BF6938-764D-480B-8958-2B62A7AB8661}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{61BF6938-764D-480B-8958-2B62A7AB8661}.Debug|x86.Build.0 = Debug|Any CPU
+		{61BF6938-764D-480B-8958-2B62A7AB8661}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{61BF6938-764D-480B-8958-2B62A7AB8661}.Release|Any CPU.Build.0 = Release|Any CPU
+		{61BF6938-764D-480B-8958-2B62A7AB8661}.Release|x64.ActiveCfg = Release|Any CPU
+		{61BF6938-764D-480B-8958-2B62A7AB8661}.Release|x64.Build.0 = Release|Any CPU
+		{61BF6938-764D-480B-8958-2B62A7AB8661}.Release|x86.ActiveCfg = Release|Any CPU
+		{61BF6938-764D-480B-8958-2B62A7AB8661}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -125,5 +139,6 @@ Global
 		{70A6285C-6A6F-49E4-A3C1-E1B6DEC732BC} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{B0FC73A7-A303-4A31-8B61-3733CB4990A5} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{5D766A80-F408-4E04-8B64-CADB915CACB5} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{61BF6938-764D-480B-8958-2B62A7AB8661} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 EndGlobal

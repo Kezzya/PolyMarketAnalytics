@@ -28,6 +28,17 @@ builder.Services.AddHttpClient<DataApiClient>(client =>
     .WaitAndRetryAsync(3, retryAttempt =>
         TimeSpan.FromSeconds(Math.Pow(2, retryAttempt))));
 
+builder.Services.AddHttpClient<ClobApiClient>(client =>
+{
+    client.BaseAddress = new Uri(
+        builder.Configuration["Polymarket:ClobApiUrl"] ?? "https://clob.polymarket.com/");
+    client.DefaultRequestHeaders.Add("Accept", "application/json");
+})
+.AddPolicyHandler(HttpPolicyExtensions
+    .HandleTransientHttpError()
+    .WaitAndRetryAsync(3, retryAttempt =>
+        TimeSpan.FromSeconds(Math.Pow(2, retryAttempt))));
+
 builder.Services.AddSingleton<ClobWebSocketClient>();
 
 builder.Services.AddMassTransit(x =>
@@ -41,6 +52,9 @@ builder.Services.AddMassTransit(x =>
 
 builder.Services.AddHostedService<MarketSyncWorker>();
 builder.Services.AddHostedService<PriceStreamWorker>();
+builder.Services.AddHostedService<WhaleTrackingWorker>();
+builder.Services.AddHostedService<OrderBookWorker>();
+builder.Services.AddHostedService<NewsCollectorWorker>();
 
 var host = builder.Build();
 host.Run();

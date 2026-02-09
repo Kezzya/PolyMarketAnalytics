@@ -14,7 +14,14 @@
       "Bash(dotnet ef migrations add:*)",
       "Bash(dotnet ef database update:*)",
       "Bash(docker compose:*)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "mcp__sequential__sequentialthinking",
+      "Bash(del \"C:\\\\Users\\\\user\\\\source\\\\repos\\\\polymarket\\\\src\\\\PolyMarket.AutoBet\\\\Worker.cs\")",
+      "Bash(dotnet restore:*)",
+      "Bash(dotnet tool list:*)",
+      "Bash(powershell -Command \"& { [System.Reflection.Assembly]::LoadFrom\\(''C:\\\\Users\\\\user\\\\.nuget\\\\packages\\\\nethereum.signer.eip712\\\\4.21.4\\\\lib\\\\net8.0\\\\Nethereum.Signer.EIP712.dll''\\) | ForEach-Object { $_.GetTypes\\(\\) } | ForEach-Object { $_.FullName } }\")",
+      "Bash(docker --version:*)",
+      "Bash(powershell:*)"
     ]
   }
 }

@@ -1,14 +1,19 @@
 using MassTransit;
 using PolyMarket.Alerting.Channels;
 using PolyMarket.Alerting.Consumers;
+using PolyMarket.Alerting.Services;
 
 var builder = Host.CreateApplicationBuilder(args);
 
+// HttpClientFactory for MarketNameResolver (resolves 0x... → market question)
+builder.Services.AddHttpClient();
+builder.Services.AddSingleton<MarketNameResolver>();
 builder.Services.AddSingleton<TelegramChannel>();
 
 builder.Services.AddMassTransit(x =>
 {
     x.AddConsumer<AnomalyAlertConsumer>();
+    x.AddConsumer<BetAlertConsumer>();
 
     x.UsingRabbitMq((context, cfg) =>
     {

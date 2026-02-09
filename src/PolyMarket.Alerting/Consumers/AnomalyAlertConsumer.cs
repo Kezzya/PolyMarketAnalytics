@@ -20,9 +20,15 @@ public class AnomalyAlertConsumer : IConsumer<AnomalyDetected>
         _minSeverity = decimal.Parse(config["Alerting:MinSeverity"] ?? "0.3");
     }
 
+    // NearResolution is noisy (hundreds of markets near expiry) — skip from Telegram
+    private static readonly HashSet<AnomalyType> _mutedTypes = [AnomalyType.NearResolution];
+
     public async Task Consume(ConsumeContext<AnomalyDetected> context)
     {
         var anomaly = context.Message;
+
+        if (_mutedTypes.Contains(anomaly.Type))
+            return;
 
         if (anomaly.Severity < _minSeverity)
         {

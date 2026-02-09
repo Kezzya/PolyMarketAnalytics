@@ -15,5 +15,8 @@ public enum AnomalyType
     WhaleTrade,
     MarketDivergence,
     NearResolution,
+    OrderBookImbalance,
+    SpreadAnomaly,
+    NewsImpact,
     ArbitrageOpportunity
 }

@@ -8,12 +8,17 @@ builder.Services.AddSingleton<PriceSpikeDetector>();
 builder.Services.AddSingleton<VolumeSpikeDetector>();
 builder.Services.AddSingleton<WhaleDetector>();
 builder.Services.AddSingleton<MarketDivergenceDetector>();
+builder.Services.AddSingleton<OrderBookImbalanceDetector>();
+builder.Services.AddSingleton<SpreadDetector>();
+builder.Services.AddSingleton<NewsImpactDetector>();
 
 builder.Services.AddMassTransit(x =>
 {
     x.AddConsumer<PriceChangedConsumer>();
     x.AddConsumer<TradeConsumer>();
     x.AddConsumer<VolumeConsumer>();
+    x.AddConsumer<OrderBookConsumer>();
+    x.AddConsumer<NewsConsumer>();
 
     x.UsingRabbitMq((context, cfg) =>
     {

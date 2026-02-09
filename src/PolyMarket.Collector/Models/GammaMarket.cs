@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace PolyMarket.Collector.Models;
 
+[JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
 public class GammaMarket
 {
     [JsonPropertyName("id")]

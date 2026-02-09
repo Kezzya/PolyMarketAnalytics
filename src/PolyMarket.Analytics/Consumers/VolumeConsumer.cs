@@ -27,6 +27,7 @@ public class VolumeConsumer : IConsumer<MarketSnapshotUpdated>
     {
         var msg = context.Message;
 
+        // 1. Volume spike detection
         var volumeAnomaly = _volumeDetector.Detect(msg);
         if (volumeAnomaly is not null)
         {
@@ -36,6 +37,7 @@ public class VolumeConsumer : IConsumer<MarketSnapshotUpdated>
 
         _volumeDetector.UpdateAverage(msg.MarketId, msg.Volume24h);
 
+        // 2. Near resolution detection
         var nearResolution = _divergenceDetector.DetectNearResolution(msg);
         if (nearResolution is not null)
         {
@@ -43,6 +45,16 @@ public class VolumeConsumer : IConsumer<MarketSnapshotUpdated>
             await _bus.Publish(nearResolution);
         }
 
+        // 3. YES+NO price sum divergence (should be ~1.0)
+        var divergence = _divergenceDetector.DetectPriceSumDivergence(msg);
+        if (divergence is not null)
+        {
+            _logger.LogWarning("Price sum divergence: {MarketId} YES+NO={Sum}",
+                msg.MarketId, msg.YesPrice + msg.NoPrice);
+            await _bus.Publish(divergence);
+        }
+
         _divergenceDetector.UpdatePrice(msg.MarketId, msg.YesPrice);
+        _divergenceDetector.UpdateSnapshot(msg);
     }
 }
