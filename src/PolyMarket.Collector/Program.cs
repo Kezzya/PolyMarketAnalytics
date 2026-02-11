@@ -40,6 +40,7 @@ builder.Services.AddHttpClient<ClobApiClient>(client =>
         TimeSpan.FromSeconds(Math.Pow(2, retryAttempt))));
 
 builder.Services.AddSingleton<ClobWebSocketClient>();
+builder.Services.AddSingleton<BinanceWebSocketClient>();
 
 builder.Services.AddMassTransit(x =>
 {
@@ -55,6 +56,7 @@ builder.Services.AddHostedService<PriceStreamWorker>();
 builder.Services.AddHostedService<WhaleTrackingWorker>();
 builder.Services.AddHostedService<OrderBookWorker>();
 builder.Services.AddHostedService<NewsCollectorWorker>();
+builder.Services.AddHostedService<BinancePriceWorker>();
 
 var host = builder.Build();
 host.Run();

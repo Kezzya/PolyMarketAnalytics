@@ -7,4 +7,6 @@ public record MarketSnapshotUpdated(
     decimal NoPrice,
     decimal Volume24h,
     decimal Liquidity,
-    DateTime Timestamp);
+    DateTime Timestamp,
+    string? EndDate = null,
+    string? Category = null);

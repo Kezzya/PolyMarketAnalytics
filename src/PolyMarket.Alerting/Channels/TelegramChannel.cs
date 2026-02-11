@@ -114,6 +114,28 @@ public class TelegramChannel
         }
     }
 
+    public async Task SendRawAsync(string htmlMessage, CancellationToken ct = default)
+    {
+        if (_bot is null || string.IsNullOrEmpty(_chatId))
+        {
+            _logger.LogWarning("Telegram not configured, message not sent");
+            return;
+        }
+
+        try
+        {
+            await _bot.SendTextMessageAsync(
+                _chatId, htmlMessage,
+                parseMode: ParseMode.Html,
+                disableWebPagePreview: true,
+                cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send Telegram message");
+        }
+    }
+
     private void CleanupOldTimestamps()
     {
         var cutoff = DateTime.UtcNow.AddMinutes(-1);

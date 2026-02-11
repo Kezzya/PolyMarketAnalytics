@@ -76,7 +76,9 @@ public class MarketSyncWorker : BackgroundService
                 NoPrice: noPrice,
                 Volume24h: market.Volume,
                 Liquidity: market.Liquidity,
-                Timestamp: DateTime.UtcNow);
+                Timestamp: DateTime.UtcNow,
+                EndDate: market.EndDate,
+                Category: market.Category);
 
             await _bus.Publish(snapshot, ct);
 

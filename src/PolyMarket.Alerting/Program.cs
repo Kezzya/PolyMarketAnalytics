@@ -2,6 +2,7 @@ using MassTransit;
 using PolyMarket.Alerting.Channels;
 using PolyMarket.Alerting.Consumers;
 using PolyMarket.Alerting.Services;
+using PolyMarket.Alerting.Workers;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -9,6 +10,8 @@ var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<MarketNameResolver>();
 builder.Services.AddSingleton<TelegramChannel>();
+builder.Services.AddSingleton<PaperTradingEngine>();
+builder.Services.AddHostedService<DailyReportWorker>();
 
 builder.Services.AddMassTransit(x =>
 {

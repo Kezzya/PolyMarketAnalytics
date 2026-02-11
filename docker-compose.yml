@@ -43,6 +43,10 @@ services:
       - Alerting__MinSeverity=0.8
       - Alerting__MaxAlertsPerMinute=3
       - Alerting__DeduplicationMinutes=15
+      - PaperTrading__StartingBalance=1000
+      - PaperTrading__TradesFile=/app/data/paper_trades.json
+    volumes:
+      - alerting-data:/app/data
     restart: unless-stopped
 
   storage:
@@ -128,3 +132,4 @@ services:
 
 volumes:
   pgdata:
+  alerting-data:

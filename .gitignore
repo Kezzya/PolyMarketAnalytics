@@ -17,3 +17,10 @@ appsettings.*.local.json
 
 ## Docker
 pgdata/
+
+## Claude AI
+.claude/
+CLAUDE.md
+
+## Windows artifacts
+nul
