@@ -17,6 +17,7 @@ public class PaperTradingEngine
     private readonly decimal _startingBalance;
     private readonly ConcurrentDictionary<string, PaperPosition> _openPositions = new();
     private readonly List<PaperTrade> _closedTrades = [];
+    private readonly HashSet<string> _tradedMarketIds = new(); // prevents re-entry into same markets
     private int _lossStreak = 0;
     private bool _paused = false;
     private DateTime? _pausedUntil;
@@ -72,7 +73,13 @@ public class PaperTradingEngine
 
         if (_openPositions.ContainsKey(marketId))
         {
-            _logger.LogDebug("Already have position in {MarketId}", marketId);
+            _logger.LogDebug("Already have open position in {MarketId}", marketId);
+            return null;
+        }
+
+        if (_tradedMarketIds.Contains(marketId))
+        {
+            _logger.LogDebug("Already traded this market, skipping re-entry: {MarketId}", marketId);
             return null;
         }
 
@@ -133,10 +140,12 @@ public class PaperTradingEngine
         };
 
         _openPositions[marketId] = position;
+        _tradedMarketIds.Add(marketId);
+        _balance -= positionSize; // Reserve capital for position
 
         _logger.LogInformation(
-            "PAPER ENTRY: {Dir} ${Size} @ {Price:F3} | Score={Score} | {Question}",
-            direction, positionSize, entryPrice, qualityScore, question);
+            "PAPER ENTRY: {Dir} ${Size} @ {Price:F3} | Score={Score} | Balance=${Balance:N2} | {Question}",
+            direction, positionSize, entryPrice, qualityScore, _balance, question);
 
         SaveState();
         return position;
@@ -287,6 +296,7 @@ public class PaperTradingEngine
                 Balance = _balance,
                 OpenPositions = _openPositions.Values.ToList(),
                 ClosedTrades = _closedTrades,
+                TradedMarketIds = _tradedMarketIds.ToList(),
                 LossStreak = _lossStreak,
                 Paused = _paused,
                 PausedUntil = _pausedUntil
@@ -321,6 +331,33 @@ public class PaperTradingEngine
                 _openPositions[pos.MarketId] = pos;
 
             _closedTrades.AddRange(state.ClosedTrades);
+
+            // Restore traded market IDs (from state + rebuild from closed trades for migration)
+            if (state.TradedMarketIds is { Count: > 0 })
+            {
+                foreach (var id in state.TradedMarketIds)
+                    _tradedMarketIds.Add(id);
+            }
+            // Also rebuild from closed trades (in case TradedMarketIds was missing in old state)
+            foreach (var trade in _closedTrades)
+                _tradedMarketIds.Add(trade.MarketId);
+            foreach (var pos in _openPositions.Values)
+                _tradedMarketIds.Add(pos.MarketId);
+
+            // One-time migration: fix inflated balance from bug where TryEnter didn't deduct size
+            // Detect: if no open positions but balance > starting + sum(closed PnL), it's inflated
+            if (_openPositions.IsEmpty && _closedTrades.Count > 0)
+            {
+                var expectedBalance = _startingBalance + _closedTrades.Sum(t => t.PnLDollars);
+                if (_balance > expectedBalance + 0.01m)
+                {
+                    _logger.LogWarning(
+                        "Balance migration: ${Old:N2} → ${New:N2} (was inflated by ${Diff:N2} due to missing entry deduction)",
+                        _balance, expectedBalance, _balance - expectedBalance);
+                    _balance = expectedBalance;
+                    SaveState(); // persist corrected balance
+                }
+            }
 
             _logger.LogInformation("Loaded paper trading state: balance=${Balance:N2}, {Open} open, {Closed} closed",
                 _balance, _openPositions.Count, _closedTrades.Count);
@@ -400,6 +437,7 @@ public class PaperTradingState
     public decimal Balance { get; set; }
     public List<PaperPosition> OpenPositions { get; set; } = [];
     public List<PaperTrade> ClosedTrades { get; set; } = [];
+    public List<string> TradedMarketIds { get; set; } = [];
     public int LossStreak { get; set; }
     public bool Paused { get; set; }
     public DateTime? PausedUntil { get; set; }

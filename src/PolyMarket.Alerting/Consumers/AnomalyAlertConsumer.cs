@@ -17,8 +17,8 @@ public class AnomalyAlertConsumer : IConsumer<AnomalyDetected>
 
     // Rate limiting — persisted to file so restarts don't reset
     private static readonly object _rateLock = new();
-    private const int MaxSignalsPerDay = 5;
-    private static readonly TimeSpan MinSignalInterval = TimeSpan.FromMinutes(30);
+    private const int MaxSignalsPerDay = 8;
+    private static readonly TimeSpan MinSignalInterval = TimeSpan.FromMinutes(15);
     private const string RateLimitFile = "/app/data/rate_limit.json";
 
     public AnomalyAlertConsumer(
@@ -68,7 +68,14 @@ public class AnomalyAlertConsumer : IConsumer<AnomalyDetected>
         if (rateState.LastSignalTime.HasValue &&
             DateTime.UtcNow - rateState.LastSignalTime.Value < MinSignalInterval)
         {
-            _logger.LogWarning("Rate limit (1/30min), dropping {Type}", anomaly.Type);
+            _logger.LogWarning("Rate limit (1/15min), dropping {Type}", anomaly.Type);
+            return;
+        }
+
+        // Per-market dedup — don't alert the same market twice in one day
+        if (rateState.AlertedMarkets.Contains(anomaly.MarketId))
+        {
+            _logger.LogDebug("Already alerted market {MarketId} today, skipping", anomaly.MarketId);
             return;
         }
 
@@ -94,6 +101,7 @@ public class AnomalyAlertConsumer : IConsumer<AnomalyDetected>
             anomaly.MarketId, question, direction, buyPrice,
             qualityScore, catalyst, hoursToRes);
 
+        // Only send alert if paper trade was executed (or if no positions available, still alert)
         // Format and send alert
         var msg = FormatAlert(anomaly, signal, qualityScore, question, polymarketUrl, paperPosition);
         await _telegram.SendRawAsync(msg);
@@ -101,6 +109,7 @@ public class AnomalyAlertConsumer : IConsumer<AnomalyDetected>
         // Update rate limit — persist to disk
         rateState.TodayCount++;
         rateState.LastSignalTime = DateTime.UtcNow;
+        rateState.AlertedMarkets.Add(anomaly.MarketId);
         SaveRateLimit(rateState);
 
         _logger.LogInformation("SIGNAL SENT [{Count}/{Max}] [Score:{Score}] {Signal} {Question}",
@@ -259,4 +268,5 @@ public class RateLimitState
     public DateTime Date { get; set; } = DateTime.UtcNow.Date;
     public int TodayCount { get; set; }
     public DateTime? LastSignalTime { get; set; }
+    public HashSet<string> AlertedMarkets { get; set; } = new(); // prevent duplicate alerts per market
 }
