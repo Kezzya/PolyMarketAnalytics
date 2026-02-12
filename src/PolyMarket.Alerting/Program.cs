@@ -12,6 +12,7 @@ builder.Services.AddSingleton<MarketNameResolver>();
 builder.Services.AddSingleton<TelegramChannel>();
 builder.Services.AddSingleton<PaperTradingEngine>();
 builder.Services.AddHostedService<DailyReportWorker>();
+builder.Services.AddHostedService<PositionTrackerWorker>();
 
 builder.Services.AddMassTransit(x =>
 {

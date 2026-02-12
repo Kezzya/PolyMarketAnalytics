@@ -18,5 +18,5 @@ public enum AnomalyType
     OrderBookImbalance,
     SpreadAnomaly,
     NewsImpact,
-    ArbitrageOpportunity
+    CryptoDivergence
 }

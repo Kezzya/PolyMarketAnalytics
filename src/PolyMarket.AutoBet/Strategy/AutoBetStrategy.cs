@@ -28,7 +28,7 @@ public class AutoBetStrategy
         if (anomaly.Type != AnomalyType.WhaleTrade &&
             anomaly.Type != AnomalyType.OrderBookImbalance &&
             anomaly.Type != AnomalyType.PriceSpike &&
-            anomaly.Type != AnomalyType.ArbitrageOpportunity)
+            anomaly.Type != AnomalyType.CryptoDivergence)
             return null;
 
         // Minimum severity filter

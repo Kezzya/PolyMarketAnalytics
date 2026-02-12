@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using MassTransit;
 using PolyMarket.Alerting.Channels;
 using PolyMarket.Alerting.Services;
@@ -14,12 +15,11 @@ public class AnomalyAlertConsumer : IConsumer<AnomalyDetected>
     private readonly MarketNameResolver _resolver;
     private readonly ILogger<AnomalyAlertConsumer> _logger;
 
-    // Rate limiting: max 5 signals per day, 1 per 30 min
-    private static int _todaySignals = 0;
-    private static DateTime _todayDate = DateTime.UtcNow.Date;
-    private static DateTime _lastSignalTime = DateTime.MinValue;
+    // Rate limiting — persisted to file so restarts don't reset
+    private static readonly object _rateLock = new();
     private const int MaxSignalsPerDay = 5;
     private static readonly TimeSpan MinSignalInterval = TimeSpan.FromMinutes(30);
+    private const string RateLimitFile = "/app/data/rate_limit.json";
 
     public AnomalyAlertConsumer(
         TelegramChannel telegram,
@@ -37,30 +37,36 @@ public class AnomalyAlertConsumer : IConsumer<AnomalyDetected>
     {
         var anomaly = context.Message;
 
-        // Must have signal + strategy from detectors
-        if (!anomaly.Details.TryGetValue("signal", out var signalObj))
-            return;
+        // ═══════════════════════════════════════
+        // HARD GATE: must have qualityScore >= 60
+        // Old detectors without quality scoring are DROPPED
+        // ═══════════════════════════════════════
+        var qualityScore = GetInt(anomaly.Details, "qualityScore");
+        if (qualityScore < 60)
+            return; // silent drop — old detectors don't pass this
 
-        var signal = signalObj?.ToString() ?? "";
+        // Must have signal (BUY YES / BUY NO)
+        var signal = GetString(anomaly.Details, "signal") ?? "";
         if (signal != "BUY YES" && signal != "BUY NO")
             return;
 
-        // Must have quality score data
-        var qualityScore = GetInt(anomaly.Details, "qualityScore");
-        if (qualityScore < 60)
+        // ═══════════════════════════════════════
+        // RATE LIMITING — persisted across restarts
+        // ═══════════════════════════════════════
+        var rateState = LoadRateLimit();
+        if (rateState.Date != DateTime.UtcNow.Date)
         {
-            _logger.LogDebug("Quality {Score} < 60, skipping {MarketId}", qualityScore, anomaly.MarketId);
-            return;
+            rateState = new RateLimitState { Date = DateTime.UtcNow.Date };
         }
 
-        // Rate limiting
-        ResetDayCounterIfNeeded();
-        if (_todaySignals >= MaxSignalsPerDay)
+        if (rateState.TodayCount >= MaxSignalsPerDay)
         {
             _logger.LogWarning("Daily limit ({Max}/day), dropping {Type}", MaxSignalsPerDay, anomaly.Type);
             return;
         }
-        if (DateTime.UtcNow - _lastSignalTime < MinSignalInterval)
+
+        if (rateState.LastSignalTime.HasValue &&
+            DateTime.UtcNow - rateState.LastSignalTime.Value < MinSignalInterval)
         {
             _logger.LogWarning("Rate limit (1/30min), dropping {Type}", anomaly.Type);
             return;
@@ -92,11 +98,13 @@ public class AnomalyAlertConsumer : IConsumer<AnomalyDetected>
         var msg = FormatAlert(anomaly, signal, qualityScore, question, polymarketUrl, paperPosition);
         await _telegram.SendRawAsync(msg);
 
-        _todaySignals++;
-        _lastSignalTime = DateTime.UtcNow;
+        // Update rate limit — persist to disk
+        rateState.TodayCount++;
+        rateState.LastSignalTime = DateTime.UtcNow;
+        SaveRateLimit(rateState);
 
-        _logger.LogInformation("SIGNAL SENT [Score:{Score}] {Signal} {Question}",
-            qualityScore, signal, question);
+        _logger.LogInformation("SIGNAL SENT [{Count}/{Max}] [Score:{Score}] {Signal} {Question}",
+            rateState.TodayCount, MaxSignalsPerDay, qualityScore, signal, question);
     }
 
     private string FormatAlert(
@@ -129,11 +137,35 @@ public class AnomalyAlertConsumer : IConsumer<AnomalyDetected>
 
         sb.AppendLine();
 
-        // Anomaly details
-        sb.AppendLine("<b>\ud83d\udcca ANOMALY:</b>");
+        // Context — edge, volatility, crypto price, days to expiry
+        sb.AppendLine("<b>\ud83d\udcca CONTEXT:</b>");
+        var symbol = GetString(anomaly.Details, "symbol");
+        var cryptoPrice = GetDecimal(anomaly.Details, "currentCryptoPrice");
+        var targetPrice = GetDecimal(anomaly.Details, "targetPrice");
+        var fairValue = GetDecimal(anomaly.Details, "fairValue");
+        var yesPrice = GetDecimal(anomaly.Details, "yesPrice");
+        var volatility = GetDecimal(anomaly.Details, "volatility");
+        var daysToExpiry = GetDouble(anomaly.Details, "daysToExpiry");
+        var edge = GetDecimal(anomaly.Details, "edge");
+        var absEdge = GetDecimal(anomaly.Details, "absEdge");
+
+        if (symbol != null && cryptoPrice.HasValue)
+            sb.AppendLine($"  {symbol}: ${cryptoPrice.Value:N2} (target ${targetPrice ?? 0:N0})");
+        if (fairValue.HasValue && yesPrice.HasValue)
+            sb.AppendLine($"  Fair: {fairValue.Value:P0} vs Market: {yesPrice.Value:P0}");
+        if (absEdge.HasValue)
+            sb.AppendLine($"  Edge: {absEdge.Value:P1}");
+        if (volatility.HasValue)
+            sb.AppendLine($"  Volatility: {volatility.Value:P0} ann.");
+        if (daysToExpiry.HasValue)
+            sb.AppendLine($"  Expiry: {daysToExpiry.Value:F0} days");
+
+        // Score breakdown
         var reasons = GetString(anomaly.Details, "scoreReasons") ?? "";
         if (!string.IsNullOrEmpty(reasons))
         {
+            sb.AppendLine();
+            sb.AppendLine("<b>\ud83c\udfaf SCORE BREAKDOWN:</b>");
             foreach (var reason in reasons.Split('|'))
                 sb.AppendLine($"  \u2022 {WebUtility.HtmlEncode(reason.Trim())}");
         }
@@ -149,9 +181,8 @@ public class AnomalyAlertConsumer : IConsumer<AnomalyDetected>
         sb.AppendLine();
 
         // Signal
-        var edgeStr = GetDecimal(anomaly.Details, "edge") is decimal edge ? $" (edge: {edge:+0.0%;-0.0%})" : "";
         var roiStr = GetDecimal(anomaly.Details, "expectedROI") is decimal roi ? $" | ROI: +{roi:P0}" : "";
-        sb.AppendLine($"\ud83d\udca1 <b>{signal}</b>{edgeStr}{roiStr}");
+        sb.AppendLine($"\ud83d\udca1 <b>{signal}</b>{roiStr}");
 
         // Paper trade info
         if (paperPosition is not null)
@@ -173,12 +204,40 @@ public class AnomalyAlertConsumer : IConsumer<AnomalyDetected>
         return sb.ToString();
     }
 
-    private static void ResetDayCounterIfNeeded()
+    // ═══════════════════════════════════════
+    // Rate limit persistence
+    // ═══════════════════════════════════════
+
+    private static RateLimitState LoadRateLimit()
     {
-        if (DateTime.UtcNow.Date != _todayDate)
+        lock (_rateLock)
         {
-            _todayDate = DateTime.UtcNow.Date;
-            _todaySignals = 0;
+            try
+            {
+                if (File.Exists(RateLimitFile))
+                {
+                    var json = File.ReadAllText(RateLimitFile);
+                    return JsonSerializer.Deserialize<RateLimitState>(json) ?? new();
+                }
+            }
+            catch { }
+            return new RateLimitState { Date = DateTime.UtcNow.Date };
+        }
+    }
+
+    private static void SaveRateLimit(RateLimitState state)
+    {
+        lock (_rateLock)
+        {
+            try
+            {
+                var dir = Path.GetDirectoryName(RateLimitFile);
+                if (dir != null && !Directory.Exists(dir))
+                    Directory.CreateDirectory(dir);
+                File.WriteAllText(RateLimitFile,
+                    JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true }));
+            }
+            catch { }
         }
     }
 
@@ -193,4 +252,11 @@ public class AnomalyAlertConsumer : IConsumer<AnomalyDetected>
 
     private static string? GetString(Dictionary<string, object> d, string key) =>
         d.TryGetValue(key, out var v) ? v?.ToString() : null;
+}
+
+public class RateLimitState
+{
+    public DateTime Date { get; set; } = DateTime.UtcNow.Date;
+    public int TodayCount { get; set; }
+    public DateTime? LastSignalTime { get; set; }
 }

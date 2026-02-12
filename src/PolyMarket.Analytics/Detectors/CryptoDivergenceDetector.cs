@@ -122,7 +122,7 @@ public class CryptoDivergenceDetector
         var directionWord = match.IsAbove ? "above" : "below";
 
         var description =
-            $"\ud83d\udcca CRYPTO ARBITRAGE: {match.Symbol} {directionWord} ${match.TargetPrice:N0}\n" +
+            $"\ud83d\udcca CRYPTO DIVERGENCE: {match.Symbol} {directionWord} ${match.TargetPrice:N0}\n" +
             $"{signalStrength} signal | Edge: <b>{absEdge:P1}</b>\n" +
             $"\n" +
             $"\ud83d\udcb0 {match.Symbol} now: <b>${currentCryptoPrice:N2}</b> (target ${match.TargetPrice:N0}, {distancePercent:+0.0;-0.0}% away)\n" +
@@ -137,14 +137,14 @@ public class CryptoDivergenceDetector
             match.Symbol, directionWord, match.TargetPrice, fairValue, yesPrice, yesEdge);
 
         return new AnomalyDetected(
-            Type: AnomalyType.ArbitrageOpportunity,
+            Type: AnomalyType.CryptoDivergence,
             MarketId: marketId,
             Description: description,
             Severity: severity,
             Details: new Dictionary<string, object>
             {
                 ["signal"] = signal,
-                ["strategy"] = "crypto-arbitrage",
+                ["strategy"] = "crypto-divergence",
                 ["symbol"] = match.Symbol,
                 ["currentCryptoPrice"] = currentCryptoPrice,
                 ["targetPrice"] = match.TargetPrice,

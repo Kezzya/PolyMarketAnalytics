@@ -25,7 +25,7 @@ public class BetAlertConsumer : IConsumer<BetPlaced>
 
         // Create a special anomaly-like alert for the bet
         var anomaly = new AnomalyDetected(
-            Type: AnomalyType.ArbitrageOpportunity, // reuse for bet notifications
+            Type: AnomalyType.CryptoDivergence, // reuse for bet notifications
             MarketId: bet.MarketId,
             Description: $"{emoji}{simTag} Auto-bet: {bet.Side} ${bet.Size:N2} @ {bet.Price:F4}\n" +
                          $"Trigger: {bet.TriggerType} — {bet.TriggerDescription}\n" +

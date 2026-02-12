@@ -6,7 +6,7 @@ using PolyMarket.Alerting.Services;
 namespace PolyMarket.Alerting.Workers;
 
 /// <summary>
-/// Sends daily paper trading report to Telegram at 21:00 UTC.
+/// Sends daily paper trading report to Telegram at 18:00 UTC (21:00 MSK).
 /// </summary>
 public class DailyReportWorker : BackgroundService
 {
@@ -14,7 +14,7 @@ public class DailyReportWorker : BackgroundService
     private readonly TelegramChannel _telegram;
     private readonly ILogger<DailyReportWorker> _logger;
 
-    private static readonly TimeSpan ReportTime = new(21, 0, 0); // 21:00 UTC
+    private static readonly TimeSpan ReportTime = new(18, 0, 0); // 18:00 UTC = 21:00 MSK
 
     public DailyReportWorker(
         PaperTradingEngine paper,
@@ -30,15 +30,26 @@ public class DailyReportWorker : BackgroundService
     {
         _logger.LogInformation("DailyReportWorker started, report time: {Time} UTC", ReportTime);
 
+        // Check if we missed today's report (e.g. container restarted after report time)
+        var now = DateTime.UtcNow;
+        var todayReport = now.Date.Add(ReportTime);
+        if (now > todayReport && now - todayReport < TimeSpan.FromHours(2))
+        {
+            // Missed by less than 2 hours — send now
+            _logger.LogInformation("Missed today's report, sending now (was due {Due})", todayReport);
+            await Task.Delay(TimeSpan.FromSeconds(15), stoppingToken); // wait for services to init
+            await SendReport(stoppingToken);
+        }
+
         while (!stoppingToken.IsCancellationRequested)
         {
-            var now = DateTime.UtcNow;
+            now = DateTime.UtcNow;
             var nextReport = now.Date.Add(ReportTime);
             if (nextReport <= now)
                 nextReport = nextReport.AddDays(1);
 
             var delay = nextReport - now;
-            _logger.LogDebug("Next report in {Delay}", delay);
+            _logger.LogInformation("Next report in {Delay:hh\\:mm}", delay);
 
             try
             {
@@ -49,18 +60,23 @@ public class DailyReportWorker : BackgroundService
                 break;
             }
 
-            try
-            {
-                var report = _paper.GetDailyReport();
-                var msg = FormatReport(report);
-                await _telegram.SendRawAsync(msg, stoppingToken);
-                _logger.LogInformation("Daily report sent: balance=${Balance:N2}, trades today={Today}",
-                    report.Balance, report.TodayTrades.Count);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to send daily report");
-            }
+            await SendReport(stoppingToken);
+        }
+    }
+
+    private async Task SendReport(CancellationToken ct)
+    {
+        try
+        {
+            var report = _paper.GetDailyReport();
+            var msg = FormatReport(report);
+            await _telegram.SendRawAsync(msg, ct);
+            _logger.LogInformation("Daily report sent: balance=${Balance:N2}, trades today={Today}",
+                report.Balance, report.TodayTrades.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send daily report");
         }
     }
 
